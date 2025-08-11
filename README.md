@@ -1,4 +1,6 @@
-Данная домашная работа взята из https://github.com/central-university-dev/2025-spring-go-course-lesson5. Данным проектом я хочу показать свои навыки работы с конкурентностью в golang.
+Данная домашная работа взята из https://github.com/central-university-dev/2025-spring-go-course-lesson5. 
+
+Этим проектом я хочу показать свои навыки работы с конкурентностью в golang.
 
 
 ## Функциональные требования
