@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"sync"
 )
 
 // Result represents the Size function result
@@ -32,6 +33,99 @@ func NewSizer() DirSizer {
 }
 
 func (a *sizer) Size(ctx context.Context, d Dir) (Result, error) {
-	// TODO: implement this
-	return Result{}, nil
+	sem := make(chan struct{}, a.maxWorkersCount)
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	var finalRes Result
+	var firstErr error
+
+	var walk func(ctx context.Context, d Dir)
+
+	walk = func(ctx context.Context, d Dir) {
+		defer wg.Done()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		subdirs, files, err := d.Ls(ctx)
+
+		if err != nil {
+			mu.Lock()
+			if firstErr == nil {
+				firstErr = err
+			}
+			mu.Unlock()
+			return
+		}
+
+		var localRes Result
+
+		for _, f := range files {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			size, err := f.Stat(ctx)
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return
+			}
+
+			localRes.Size += size
+			localRes.Count++
+		}
+
+		mu.Lock()
+		finalRes.Count += localRes.Count
+		finalRes.Size += localRes.Size
+		mu.Unlock()
+
+		for _, sd := range subdirs {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(sd Dir) {
+				defer func() { <-sem }()
+				walk(ctx, sd)
+			}(sd)
+
+			mu.Lock()
+			if firstErr != nil {
+				mu.Unlock()
+				return
+			}
+			mu.Unlock()
+		}
+
+	}
+
+	wg.Add(1)
+	sem <- struct{}{}
+	go func() {
+		defer func() { <-sem }()
+		walk(ctx, d)
+	}()
+	wg.Wait()
+
+	if firstErr != nil {
+		return Result{}, firstErr
+	}
+
+	return finalRes, nil
 }
